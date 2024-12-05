@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>高德地图展示与门店标记</title>
+    <style>
+        /* 设置地图容器的宽度和高度 */
+        #map {
+            width: 100%;
+            height: 100vh;
+        }
+
+        /* 美化 Select 下拉框样式 */
+        select {
+            position: absolute;
+            z-index: 10;
+            top: 10px;
+            left: 10px;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 5px;
+            border: 1px solid #d4d4d4;
+            background-color: #fff;
+            background-image: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"%3E%3Cpath fill="none" stroke="%23B8B8B8" stroke-width="2" d="M2 6l6 6 6-6"%3E%3C/path%3E%3C/svg%3E');
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            width: 110px;
+            cursor: pointer;
+            transition: border 0.3s;
+            background-size: 20px 20px;
+        }
+
+        select:hover {
+            border-color: #6c757d;
+        }
+
+        select:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+
+        select option {
+            padding: 10px;
+            background-color: #fff;
+            font-size: 16px;
+        }
+
+        /* 设置底部信息框的样式 */
+        #infoBox {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #ffffff;
+            color: #444444;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 14px;
+            width: 300px;
+            text-align: center;
+            display: none;
+            /* 初始隐藏 */
+            box-shadow: 1px 1px 1px 0px #cccccc;
+            line-height: 1.5;
+        }
+    </style>
+
+    <!-- 加载高德地图的 JavaScript API -->
+    <script type="text/javascript"
+        src="https://webapi.amap.com/maps?v=2.0&key=9f89fff731f9c7bdeac4a92e531b25a2&callback=initMap&plugin=AMap.Geolocation"></script>
+
+</head>
+
+<body>
+
+    <div id="map"></div>
+    <select id="radius">
+        <option value="500">500m</option>
+        <option value="1000">1000m</option>
+        <option value="2000">2000m</option>
+    </select>
+    <!-- 底部信息框 -->
+    <div id="infoBox">
+        <span id="closeBtn"
+            style="position: absolute; right: 10px; top: 0px; font-size:20px; cursor: pointer;">&times;</span>
+        <div id="infoBoxCont"></div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.1.1.min.js"></script>
+    <script>
+        var map;
+        var userPosition;
+        var storeData = [];
+        var userCircle;  // 圆形区域对象
+
+        function fetchStoreData(callback) {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', 'BDStoreData.json', true);  // 请求 JSON 文件
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    storeData = JSON.parse(xhr.responseText);  // 解析 JSON 数据
+                    callback();  // 数据加载完成后执行回调函数
+                }
+            };
+            xhr.send();  // 发送请求
+        }
+
+        // 地图初始化函数
+        function initMap() {
+            // 创建地图实例
+            map = new AMap.Map("map", {
+                zoom: 15, // 设置地图缩放级别
+                resizeEnable: true // 开启自适应屏幕大小
+            });
+
+            // 创建 Geolocation 实例
+            var geolocation = new AMap.Geolocation({
+                enableHighAccuracy: true,  // 高精度定位
+                timeout: 10000,  // 设置定位超时时间为10秒
+                maximumAge: 0,  // 禁用缓存
+                buttonPosition: 'LB',  // 定位按钮显示位置，'LB'表示左下角
+                buttonOffset: new AMap.Pixel(10, 30),  // 定位按钮的偏移量
+                showCircle: false, // 禁用定位范围的蓝色圆
+                zoomToAccuracy: true,  // 定位成功后是否自动调整地图视野
+            });
+
+            // 将定位控件添加到地图
+            map.addControl(geolocation);
+            // 监听定位完成事件
+            geolocation.on('complete', function (data) {
+                // 定位成功后获取当前位置
+                userPosition = new AMap.LngLat(data.position.lng, data.position.lat);
+                console.log("定位成功，当前位置：", userPosition);
+                map.setCenter(userPosition);
+                map.setZoom(15);
+                var userMarker = new AMap.Marker({
+                    position: userPosition,
+                    title: '我的位置',
+                    icon: new AMap.Icon({
+                        size: new AMap.Size(40, 50),
+                        image: "https://webapi.amap.com/theme/v1.3/markers/n/mark_r.png"
+                    })
+                });
+                userMarker.setMap(map);
+                var radius = 500;
+                document.getElementById('radius').value = radius;
+                document.getElementById('radius').dispatchEvent(new Event('change'));
+                updateStoreMarkers(500);
+            });
+
+            geolocation.on('error', function () {
+                alert("定位失败，请检查浏览器权限设置。");
+            });
+
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(function (position) {
+                    var lat = position.coords.latitude;
+                    var lng = position.coords.longitude;
+                    userPosition = new AMap.LngLat(lng, lat);
+                    map.setCenter(userPosition);
+                    map.setZoom(15);
+
+                    var userMarker = new AMap.Marker({
+                        position: userPosition,
+                        title: '我的位置',
+                        icon: new AMap.Icon({
+                            size: new AMap.Size(40, 50),
+                            image: "https://webapi.amap.com/theme/v1.3/markers/n/mark_r.png"
+                        }),
+                        zIndex: 999
+                    });
+                    userMarker.setMap(map);
+
+                    document.getElementById('radius').addEventListener('change', function () {
+                        updateStoreMarkers(this.value);
+                    });
+
+                    updateStoreMarkers(500);
+
+                }, function (error) {
+                    alert("无法获取当前位置，请检查浏览器权限设置。");
+                }, {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 0
+                });
+            } else {
+                alert("浏览器不支持地理位置功能。");
+            }
+        }
+
+        function updateStoreMarkers(radius) {
+            map.clearMap();
+            var userMarker = new AMap.Marker({
+                position: userPosition,
+                title: '我的位置',
+                icon: new AMap.Icon({
+                    size: new AMap.Size(40, 50),
+                    image: "https://webapi.amap.com/theme/v1.3/markers/n/mark_r.png"
+                }),
+                zIndex: 100
+            });
+            userMarker.setMap(map);
+
+            if (userCircle) {
+                userCircle.setMap(null);
+            }
+            userCircle = new AMap.Circle({
+                center: userPosition,
+                radius: radius,
+                strokeColor: "#0091ea",
+                strokeOpacity: 0.6,
+                strokeWeight: 3,
+                fillColor: "#0091ea",
+                fillOpacity: 0.3
+            });
+            userCircle.setMap(map);
+
+
+            storeData.forEach(function (store) {
+                var storePosition = new AMap.LngLat(store["lng"], store["lat"]);
+                var distance = AMap.GeometryUtil.distance(userPosition, storePosition);
+                if (distance <= radius) {
+                    var storeMarker = new AMap.Marker({
+                        position: storePosition,
+                        title: store.name,
+                        icon: new AMap.Icon({
+                            size: new AMap.Size(15, 25),
+                            image: "https://webapi.amap.com/theme/v1.3/markers/n/mark_b.png",
+                            imageSize: new AMap.Size(15, 25)
+                        }),
+                        zIndex: 2
+                    });
+                    storeMarker.setMap(map);
+
+                    // 点击门店标记时，显示信息
+                    storeMarker.on('click', function () {//地址: ${store.address}<br />
+                        var infoContent = `
+                            <strong>${store.name}</strong><br />
+                            距离: ${Math.round(distance)} 米
+                    `;
+                        $("#infoBoxCont").html(infoContent)
+                        $("#infoBox").show()
+                    });
+                }
+            });
+            // 点击我的位置标记
+            userMarker.on('click', function () {
+                var my_info = `<strong>我的位置</strong>`;//${store.name}
+                $("#infoBoxCont").html(my_info)
+                $("#infoBox").show()
+            })
+        }
+
+        fetchStoreData(initMap);
+        // // 点击空白处隐藏消息框
+        // $(document).click(function (event) {
+        //     if (!$(event.target).closest('#infoBox').length) {
+        //         $('#infoBox').hide();  // 隐藏信息框
+        //     }
+        // });
+        $('#closeBtn').click(function () {
+            $('#infoBox').hide();
+        });
+    </script>
